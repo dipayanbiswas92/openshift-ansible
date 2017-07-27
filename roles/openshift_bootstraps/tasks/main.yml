@@ -1,0 +1,98 @@
+---
+######################################################################
+# Boostrapping Openshift Installation
+#
+
+- name: "Check for cicd project already exists"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    get project cicd -o jsonpath='{.metadata.name}'
+  register: cicd_project_result
+  ignore_errors: True
+
+- name: "Create CI/CD project"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project cicd  --description="CI/CD Project" --display-name="CI/CD Project"
+  when: cicd_project_result.stdout == ""
+
+- name: "Changing projects"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    project cicd
+
+- name: "Create Jenkins Server Container"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app jenkins-ephemeral
+  register: jenkins_deployer
+  failed_when: jenkins_deployer.rc == 1 and 'already exists' not in jenkins_deployer.stderr
+
+- name: "Create PostgreSQL Server Container"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app postgresql-ephemeral
+    -p POSTGRESQL_USER=sonar
+    -p POSTGRESQL_PASSWORD=sonar123
+    -p POSTGRESQL_DATABASE=sonar
+  register: postgresql_deployer
+  failed_when: postgresql_deployer.rc == 1 and 'already exists' not in postgresql_deployer.stderr
+
+- name: "Create SonarQube Server Container"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app docker.io/openshiftdemos/sonarqube:6.0
+    -e SONARQUBE_JDBC_USERNAME=sonar 
+    -e SONARQUBE_JDBC_PASSWORD=sonar123 
+    -e SONARQUBE_JDBC_URL=jdbc:postgresql://postgresql/sonar
+  when: postgresql_deployer.stderr == ""
+  register: sonarqube_deployer
+  failed_when: sonarqube_deployer.rc == 1 and 'already exists' not in sonarqube_deployer.stderr
+
+- name: "Expose SonarQube Server"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service sonarqube
+  register: sonarqube_service
+  failed_when: sonarqube_service.rc == 1 and 'already exists' not in sonarqube_service.stderr
+
+- name: "Create Nexus Server Container"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app sonatype/nexus
+  register: nexus_deployer
+  failed_when: nexus_deployer.rc == 1 and 'already exists' not in nexus_deployer.stderr
+
+- name: "Expose Nexus Server"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service nexus
+  register: nexus_service
+  failed_when: nexus_service.rc == 1 and 'already exists' not in nexus_service.stderr  
+
+
+
+- name: "Create Development project"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project dev --description="Development Environment" --display-name="Development Environment"
+  when: dev_project_result.stdout == ""
+
+- name: "Create Testing project"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project testing  --description="Testing Environment" --display-name="Testing Environment"
+  when: testing_project_result.stdout == ""
+
+- name: "Create Staging project"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project staging  --description="Staging Environment" --display-name="Staging Environment"
+  when: staging_project_result.stdout == ""
