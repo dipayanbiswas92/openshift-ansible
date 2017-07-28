@@ -96,3 +96,8 @@
     {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
     new-project staging  --description="Staging Environment" --display-name="Staging Environment"
   when: staging_project_result.stdout == ""
+
+- name: "Grant ClusterAdmin Priviledge"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    policy add-cluster-role-to-user cluster-admin openshift-admin

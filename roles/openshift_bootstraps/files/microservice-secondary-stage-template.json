@@ -1,0 +1,247 @@
+{
+    "kind": "Template",
+    "apiVersion": "v1",
+    "metadata": {
+        "name": "${APPLICATION_NAME}-${NAMESPACE}",
+        "creationTimestamp": null
+    },
+    "objects": [
+        {
+            "kind": "DeploymentConfig",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "${APPLICATION_NAME}",
+                "generation": 1,
+                "creationTimestamp": null,
+                "labels": {
+                    "app": "${APPLICATION_NAME}"
+                },
+                "annotations": {
+                    "openshift.io/generated-by": "OpenShiftNewApp"
+                }
+            },
+            "spec": {
+                "strategy": {
+                    "type": "Rolling",
+                    "rollingParams": {
+                        "updatePeriodSeconds": 1,
+                        "intervalSeconds": 1,
+                        "timeoutSeconds": 600,
+                        "maxUnavailable": "25%",
+                        "maxSurge": "25%"
+                    },
+                    "resources": {}
+                },
+                "triggers": [
+                    {
+                        "type": "ConfigChange"
+                    },
+                    {
+                        "type": "ImageChange",
+                        "imageChangeParams": {
+                            "automatic": true,
+                            "containerNames": [
+                                "${APPLICATION_NAME}"
+                            ],
+                            "from": {
+                                "kind": "ImageStreamTag",
+                                "name": "${APPLICATION_NAME}:latest"
+                            }
+                        }
+                    }
+                ],
+                "replicas": "${REPLICAS}",
+                "test": false,
+                "selector": {
+                    "app": "${APPLICATION_NAME}",
+                    "deploymentconfig": "${APPLICATION_NAME}"
+                },
+                "template": {
+                    "metadata": {
+                        "creationTimestamp": null,
+                        "labels": {
+                            "app": "${APPLICATION_NAME}",
+                            "deploymentconfig": "${APPLICATION_NAME}"
+                        },
+                        "annotations": {
+                            "openshift.io/container.${APPLICATION_NAME}.image.entrypoint":
+"[\"container-entrypoint\",\"/bin/sh\",\"-c\",\"$STI_SCRIPTS_PATH/usage\"]",
+                            "openshift.io/generated-by": "OpenShiftNewApp"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "${APPLICATION_NAME}",
+                                "image": "${OPENSHIFT_REPO}/${SOURCE_IMAGE_NAMESPACE}/${APPLICATION_NAME}:promoteTo${NAMESPACE}",
+                                "ports": [
+                                    {
+                                        "containerPort": "${SOURCE_PORT}",
+                                        "protocol": "TCP"
+                                    }
+                                ],
+                                "env": [
+                                    {
+                                        "name": "SPRING_PROFILES_ACTIVE",
+                                        "value": "k8s"
+                                    }
+                                ],
+                                "resources": {
+                                    "limits": {
+                                        "cpu": "${CPU_LIMIT}",
+                                        "memory": "${RAM_LIMIT}"
+                                    },
+                                    "requests": {
+                                        "cpu": "${CPU_REQUEST}",
+                                        "memory": "${RAM_REQUEST}"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "imagePullPolicy": "Always"
+                            }
+                        ],
+                        "restartPolicy": "Always",
+                        "terminationGracePeriodSeconds": 30,
+                        "dnsPolicy": "ClusterFirst",
+                        "securityContext": {}
+                    }
+                }
+            },
+            "status": {}
+        },
+        {
+            "kind": "Service",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "${APPLICATION_NAME}",
+                "creationTimestamp": null,
+                "labels": {
+                    "app": "${APPLICATION_NAME}"
+                },
+                "annotations": {
+                    "openshift.io/generated-by": "OpenShiftNewApp"
+                }
+            },
+            "spec": {
+                "ports": [
+                    {
+                        "name": "8080-tcp",
+                        "protocol": "TCP",
+                        "port": 8080,
+                        "targetPort": 8080
+                    }
+                ],
+                "selector": {
+                    "app": "${APPLICATION_NAME}",
+                    "deploymentconfig": "${APPLICATION_NAME}"
+                },
+                "type": "ClusterIP",
+                "sessionAffinity": "None"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "kind": "Route",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "${APPLICATION_NAME}",
+                "creationTimestamp": null,
+                "labels": {
+                    "app": "${APPLICATION_NAME}"
+                },
+                "annotations": {
+                    "openshift.io/host.generated": "true"
+                }
+            },
+            "spec": {
+                "host": "${APPLICATION_NAME}-${NAMESPACE}.${APP_DOMAIN_NAME}",
+                "to": {
+                    "kind": "Service",
+                    "name": "${APPLICATION_NAME}",
+                    "weight": 100
+                },
+                "port": {
+                    "targetPort": "${TARGET_PORT}-tcp"
+                },
+                "wildcardPolicy": "None"
+            }
+       },
+    ],
+
+        "parameters": [
+    {
+      "name": "APPLICATION_NAME",
+      "displayName": "Application Name",
+      "description": "Name of the application to be displayed ",
+      "required": true
+    },
+    {
+      "name": "REPLICAS",
+      "displayName": "Replicas",
+      "description": "Number of Replica of the containers ",
+      "required": true
+    },
+    {
+      "name": "CPU_LIMIT",
+      "displayName": "CPU Limit",
+      "description": "Limit on CPU for a container ",
+       "value": "2"
+    },
+    {
+      "name": "RAM_LIMIT",
+      "displayName": "RAM Limit",
+      "description": "Limit on RAM for a container ",
+       "value": "2G"
+    },
+    {
+      "name": "CPU_REQUEST",
+      "displayName": "CPU Request",
+      "description": "Request on CPU for a container ",
+       "value": "128m"
+    },
+    {
+      "name": "RAM_REQUEST",
+      "displayName": "RAM Request",
+      "description": "Request on RAM for a container ",
+       "value": "512Mi"
+    },
+    {
+      "name": "NAMESPACE",
+      "displayName": "Namespace",
+      "description": "The OpenShift Namespace where the Application resides.",
+      "required": true
+    },
+    {
+      "name": "SOURCE_IMAGE_NAMESPACE",
+      "displayName": "Source Image Namespace",
+      "description": "Source Image Namespace.",
+      "required": true
+    },
+        {
+      "name": "SOURCE_PORT",
+      "displayName": "Container Port",
+      "description": "Port for the application inside the container",
+      "value": "8080"
+    },
+        {
+      "name": "TARGET_PORT",
+      "displayName": "Host Port",
+      "description": "Port for the container from outside",
+      "value": "8080"
+    },
+    {
+      "name": "OPENSHIFT_REPO",
+      "displayName": "Docker Repo for Openshift",
+      "description": "Docker Repo for Openshift",
+      "required": true
+    },
+    {
+      "name": "APP_DOMAIN_NAME",
+      "displayName": "Application Domain Name",
+      "description": "Application Domain Name",
+      "required": true
+    }
+  ]
+}
