@@ -2,10 +2,79 @@
     "kind": "Template",
     "apiVersion": "v1",
     "metadata": {
-        "name": "secondary-stage-app-template",
+        "name": "main-stage-app-s2i-build-template",
         "creationTimestamp": null
     },
     "objects": [
+        {
+            "kind": "BuildConfig",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "${APPLICATION_NAME}",
+                "creationTimestamp": null,
+                "labels": {
+                    "app": "${APPLICATION_NAME}"
+                },
+                "annotations": {
+                    "openshift.io/generated-by": "OpenShiftNewApp"
+                }
+            },
+            "spec": {
+                "triggers": [
+                    {
+                        "type": "GitHub",
+                        "github": {
+                            "secret": "YWw4HdmweKlg_54RTEbe"
+                        }
+                    },
+                    {
+                        "type": "Generic",
+                        "generic": {
+                            "secret": "HXpCNeP3zY47XNgahvCP"
+                        }
+                    },
+                    {
+                        "type": "ConfigChange"
+                    },
+                    {
+                        "type": "ImageChange",
+                        "imageChange": {}
+                    }
+                ],
+                "runPolicy": "Serial",
+                "source": {
+                    "type": "Git",
+                    "git": {
+                        "uri": "${GIT_URL}"
+                    },
+                    "sourceSecret": {
+                        "name": "${GIT_SECRET}"
+                    }
+                },
+                "strategy": {
+                    "type": "Source",
+                    "sourceStrategy": {
+                        "from": {
+                            "kind": "ImageStreamTag",
+                            "namespace": "openshift",
+                            "name": "${BASE_IMAGE}"
+                        }
+                    }
+                },
+                "output": {
+                    "to": {
+                        "kind": "ImageStreamTag",
+                        "name": "${APPLICATION_NAME}:latest"
+                    }
+                },
+                "resources": {},
+                "postCommit": {},
+                "nodeSelector": null
+            },
+            "status": {
+                "lastVersion": 0
+            }
+        },
         {
             "kind": "DeploymentConfig",
             "apiVersion": "v1",
@@ -45,8 +114,7 @@
                             ],
                             "from": {
                                 "kind": "ImageStreamTag",
-                                "namespace": "${SOURCE_IMAGE_NAMESPACE}",
-                                "name": "${APPLICATION_NAME}:promoteTo${NAMESPACE}"
+                                "name": "${APPLICATION_NAME}:latest"
                             }
                         }
                     }
@@ -74,7 +142,7 @@
                         "containers": [
                             {
                                 "name": "${APPLICATION_NAME}",
-                                "image": "${OPENSHIFT_REPO}/${SOURCE_IMAGE_NAMESPACE}/${APPLICATION_NAME}:promoteTo${NAMESPACE}",
+                                "image": "${OPENSHIFT_REPO}/${NAMESPACE}/${APPLICATION_NAME}",
                                 "ports": [
                                     {
                                         "containerPort": 8080,
@@ -82,10 +150,6 @@
                                     }
                                 ],
                                 "env": [
-                                    {
-                                        "name": "SPRING_PROFILES_ACTIVE",
-                                        "value": "k8s"
-                                    }
                                 ],
                                 "resources": {
                                     "limits": {
@@ -164,7 +228,59 @@
                 },
                 "wildcardPolicy": "None"
             }
-       }
+       },
+                  {
+            "kind": "ImageStream",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "${APPLICATION_NAME}",
+                "generation": 5,
+                "creationTimestamp": null,
+                "labels": {
+                    "app": "${APPLICATION_NAME}"
+                },
+                "annotations": {
+                    "openshift.io/generated-by": "OpenShiftNewApp"
+                }
+            },
+            "spec": {
+                "tags": [
+                    {
+                        "name": "latest",
+                        "annotations": null,
+                        "from": {
+                            "kind": "DockerImage",
+                            "name": "${OPENSHIFT_REPO}/${NAMESPACE}/${APPLICATION_NAME}:latest"
+                        },
+                        "generation": null,
+                        "importPolicy": {}
+                    },
+                    {
+                        "name": "promoteToStage",
+                        "annotations": null,
+                        "from": {
+                            "kind": "DockerImage",
+                            "name": "${OPENSHIFT_REPO}/${NAMESPACE}/${APPLICATION_NAME}:promoteToStage"
+                        },
+                        "generation": 5,
+                        "importPolicy": {}
+                    },
+                    {
+                        "name": "promoteToTest",
+                        "annotations": null,
+                        "from": {
+                            "kind": "DockerImage",
+                            "name": "${OPENSHIFT_REPO}/${NAMESPACE}/${APPLICATION_NAME}:promoteToTest"
+                        },
+                        "generation": 4,
+                        "importPolicy": {}
+                    }
+                ]
+            },
+            "status": {
+                "dockerImageRepository": ""
+            }
+        }
     ],
 
         "parameters": [
@@ -172,6 +288,12 @@
       "name": "APPLICATION_NAME",
       "displayName": "Application Name",
       "description": "Name of the application to be displayed ",
+      "required": true
+    },
+    {
+      "name": "GIT_URL",
+      "displayName": "Git URL",
+      "description": "GIT Repository URL ",
       "required": true
     },
     {
@@ -211,10 +333,10 @@
       "required": true
     },
     {
-      "name": "SOURCE_IMAGE_NAMESPACE",
-      "displayName": "Source Image Namespace",
-      "description": "Source Image Namespace.",
-      "required": true
+      "name": "BASE_IMAGE",
+      "displayName": "Base Image",
+      "description": "Base Image for building the application",
+      "value": "s2i-java:latest"
     },
     {
       "name": "OPENSHIFT_REPO",
@@ -222,6 +344,12 @@
       "description": "Docker Repo for Openshift",
       "required": true,
       "value": "docker-registry.default.svc.cluster.local:5000"
+    },
+    {
+      "name": "GIT_SECRET",
+      "displayName": "Git Secret",
+      "description": "Secret used for Git Repository",
+      "value": "gitsshsecret"
     }
   ]
 }

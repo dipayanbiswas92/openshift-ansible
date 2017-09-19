@@ -2,7 +2,7 @@
     "kind": "Template",
     "apiVersion": "v1",
     "metadata": {
-        "name": "${APPLICATION_NAME}-${NAMESPACE}",
+        "name": "main-stage-app-docker-build-template",
         "creationTimestamp": null
     },
     "objects": [
@@ -45,18 +45,19 @@
                 "source": {
                     "type": "Git",
                     "git": {
-                        "uri": "${GIT_URL}"
+                        "uri": "${GIT_URL}",
+                        "ref": "${GIT_BRANCH}"
                     },
+                    "contextDir": "${GIT_CONTEXT}",
                     "sourceSecret": {
                         "name": "${GIT_SECRET}"
                     }
                 },
                 "strategy": {
-                    "type": "Source",
-                    "sourceStrategy": {
+                    "type": "Docker",
+                    "dockerStrategy": {
                         "from": {
-                            "kind": "ImageStreamTag",
-                            "name": "${BASE_IMAGE}"
+                            "dockerfilePath": "Dockerfile"
                         }
                     }
                 },
@@ -132,8 +133,6 @@
                             "deploymentconfig": "${APPLICATION_NAME}"
                         },
                         "annotations": {
-                            "openshift.io/container.${APPLICATION_NAME}.image.entrypoint":
-"[\"container-entrypoint\",\"/bin/sh\",\"-c\",\"$STI_SCRIPTS_PATH/usage\"]",
                             "openshift.io/generated-by": "OpenShiftNewApp"
                         }
                     },
@@ -144,15 +143,11 @@
                                 "image": "${OPENSHIFT_REPO}/${NAMESPACE}/${APPLICATION_NAME}",
                                 "ports": [
                                     {
-                                        "containerPort": "${SOURCE_PORT}",
+                                        "containerPort": 8080,
                                         "protocol": "TCP"
                                     }
                                 ],
                                 "env": [
-                                    {
-                                        "name": "SPRING_PROFILES_ACTIVE",
-                                        "value": "k8s"
-                                    }
                                 ],
                                 "resources": {
                                     "limits": {
@@ -224,14 +219,10 @@
                 }
             },
             "spec": {
-                "host": "${APPLICATION_NAME}-${NAMESPACE}.${APP_DOMAIN_NAME}",
                 "to": {
                     "kind": "Service",
                     "name": "${APPLICATION_NAME}",
                     "weight": 100
-                },
-                "port": {
-                    "targetPort": "${TARGET_PORT}-tcp"
                 },
                 "wildcardPolicy": "None"
             }
@@ -304,6 +295,18 @@
       "required": true
     },
     {
+      "name": "GIT_BRANCH",
+      "displayName": "Git Branch or Reference",
+      "description": "Git Branch or Reference ",
+      "value": "master"
+    },
+    {
+      "name": "GIT_CONTEXT",
+      "displayName": "Git Context Directory",
+      "description": "Git Context Directory",
+      "value": "/"
+    },
+    {
       "name": "REPLICAS",
       "displayName": "Replicas",
       "description": "Number of Replica of the containers ",
@@ -339,37 +342,14 @@
       "description": "The OpenShift Namespace where the Application resides.",
       "required": true
     },
-        {
-      "name": "SOURCE_PORT",
-      "displayName": "Container Port",
-      "description": "Port for the application inside the container",
-      "value": "8080"
-    },
-        {
-      "name": "TARGET_PORT",
-      "displayName": "Host Port",
-      "description": "Port for the container from outside",
-      "value": "8080"
-    },
-    {
-      "name": "BASE_IMAGE",
-      "displayName": "Base Image",
-      "description": "Base Image for building the application",
-      "value": "springboot-maven3-centos:latest"
-    },
     {
       "name": "OPENSHIFT_REPO",
       "displayName": "Docker Repo for Openshift",
       "description": "Docker Repo for Openshift",
-      "required": true
+      "required": true,
+      "value": "docker-registry.default.svc.cluster.local:5000"
     },
     {
-      "name": "APP_DOMAIN_NAME",
-      "displayName": "Application Domain Name",
-      "description": "Application Domain Name",
-      "required": true
-    },
-        {
       "name": "GIT_SECRET",
       "displayName": "Git Secret",
       "description": "Secret used for Git Repository",

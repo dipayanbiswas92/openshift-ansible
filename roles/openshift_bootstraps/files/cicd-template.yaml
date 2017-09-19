@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: cicd-template
+labels:
+  template: cicd-template
+  group: cicd-template
+metadata:
+  annotations:
+    description: The Pipeline template for Openshift for a Maven Project with Junit, SonarQube,Nexus
+    iconClass: icon-jenkins
+    tags: pipeline
+  name: cicd-template
+message: The Pipeline template for Openshift for a Maven Project with Junit, SonarQube,Nexus
+parameters:
+- displayName: Application Name
+  description: Name of the application to be displayed
+  required: true
+  name: APPLICATION_NAME
+
+- displayName: GIT URL
+  description: URL of the GIT Repository
+  name: GIT_URL
+  
+objects:
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      app: ${APPLICATION_NAME}-pipeline
+      name: ${APPLICATION_NAME}-pipeline
+    name: ${APPLICATION_NAME}-pipeline
+  spec:
+    triggers:
+      - type: GitHub
+        github:
+          secret: secret101
+      - type: Generic
+        generic:
+          secret: secret101
+    runPolicy: Serial
+    source:
+      type: None
+    strategy:
+      jenkinsPipelineStrategy:
+        jenkinsfile: |-
+          node("maven") {
+             // define commands
+             def mvnCmd = "mvn -s settings.xml"
+             stage ('Build') {
+               //git branch: 'master',
+               //     credentialsId: 'git-credentials',
+               //     url: '${GIT_URL}'
+               //sh "${mvnCmd} clean install -DskipTests=true"
+
+               openshiftBuild(buildConfig: '${APPLICATION_NAME}', showBuildLogs: 'true',namespace: 'dev')
+
+             }
+
+
+             //stage ('Junit Testing') {
+             //      sh "${mvnCmd} test"
+             //      step([$class: 'JUnitResultArchiver', testResults: '**/target/surefire-reports/TEST-*.xml'])
+             //}
+
+             //stage ('Static Code Analysis') {      
+             //      sh "${mvnCmd}  sonar:sonar -Dsonar.host.url=http://sonarqube:9000 -DskipTests=true"
+             //}
+
+             //stage ('Push to Nexus') {
+             // sh "${mvnCmd} deploy -DskipTests=true -DrepositoryId=openap-nexus-snapshot"
+             //}
+
+             stage ('Deploy DEV') {
+
+               openshiftDeploy(deploymentConfig: '${APPLICATION_NAME}', namespace: 'dev')
+               openshiftScale(namespace: 'dev', deploymentConfig: '${APPLICATION_NAME}', replicaCount: '2')
+
+             }
+
+             stage ('Deploy testing') {
+
+               openshiftTag(sourceStream: '${APPLICATION_NAME}', sourceTag: 'latest' , destinationStream: '${APPLICATION_NAME}', destinationTag: 'promoteToTesting', namespace: 'dev')
+               openshiftDeploy(deploymentConfig: '${APPLICATION_NAME}', namespace: 'dev')
+               openshiftScale(namespace: 'dev', deploymentConfig: '${APPLICATION_NAME}', replicaCount: '2')
+               
+             }
+
+             stage ('Deploy STAGE') {
+               timeout(time:5, unit:'MINUTES') {
+                  input message: "Promote to STAGE?", ok: "Promote"
+
+               openshiftTag(sourceStream: '${APPLICATION_NAME}', sourceTag: 'latest' , destinationStream: '${APPLICATION_NAME}', destinationTag: 'promoteToStaging', namespace: 'dev')
+               openshiftDeploy(deploymentConfig: '${APPLICATION_NAME}', namespace: 'staging')
+               openshiftScale(namespace: 'staging', deploymentConfig: '${APPLICATION_NAME}', replicaCount: '2')                  
+               }
+
+
+          }
+
+      }	
+      type: JenkinsPipeline
+      type: Generic
+  status:
+    lastVersion: 0

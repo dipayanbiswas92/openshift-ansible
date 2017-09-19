@@ -1,2 +1,4 @@
 ---
 openshift_master_config_dir: "{{ openshift.common.config_base }}/master"
+examples_base: "{{ openshift.common.config_base if openshift.common.is_containerized | bool else '/usr/share/openshift' }}/examples"
+key_path: "/data/git"

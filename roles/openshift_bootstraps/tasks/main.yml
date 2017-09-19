@@ -1,7 +1,34 @@
 ---
-######################################################################
+##########################################
 # Boostrapping Openshift Installation
-#
+##########################################
+
+# Copying all the relevant files to the server
+
+- name: Copy OpenShift Bootstrap files
+  copy:
+    src: "{{ role_path }}/files/{{ item }}"
+    dest: "{{ examples_base }}/bootstrap/"
+    remote_src: yes
+  with_items:
+    - "cicd-template.yaml"
+    - "microservice-primary-stage-s2i-build-template.json"
+    - "microservice-primary-stage-docker-build-template.json"
+    - "microservice-secondary-stage-template.json"
+    - "s2i-java-imagestream.json"
+    - "prometheus.json"
+
+- name: Copy OpenShift GIT SSH Keys files
+  copy:
+    src: "{{ key_path }}/{{ item }}"
+    dest: "{{ examples_base }}/git/"
+    remote_src: yes
+  with_items:
+    - "id_rsa"
+    - "id_rsa.pub"
+
+# Creating all the needed Projects
+
 
 - name: "Check for cicd project already exists"
   command: >
@@ -12,9 +39,110 @@
 
 - name: "Create CI/CD project"
   command: >
-    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
     new-project cicd  --description="CI/CD Project" --display-name="CI/CD Project"
   when: cicd_project_result.stdout == ""
+
+- name: "Create Development project"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project dev --description="Development Environment" --display-name="Development Environment"
+
+- name: "Create Testing project"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project testing  --description="Testing Environment" --display-name="Testing Environment"
+
+- name: "Create Staging project"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project staging  --description="Staging Environment" --display-name="Staging Environment"
+
+- name: "Create Metrics project"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project dev --description="Metrics Project" --display-name="Metrics Project"
+
+- name: "Create WSO2 Suite project"
+  command: >
+    {{ openshift.common.client_binary }} --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-project dev --description="WSO2 Suite" --display-name="WSO2 Suite"
+
+
+# Adding the SSH Secret for Git Repo to be Configured.
+
+- name: "Create GIT SSH Secret for the Projects"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    secrets new-sshauth gitsshsecret --ssh-privatekey={{ examples_base }}/git//id_rsa -n {{ item }}
+  with_items:
+  - "dev"
+  - "testing"
+  - "staging"
+  - "cicd"
+  - "logging"
+  - "metrics"
+  - "wso2"
+
+
+- name: "Annotate GIT SSH Secret for the Projects"
+  command: >
+    {{ openshift.common.client_binary }} annotate --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    secrets gitsshsecret 'build.openshift.io/source-secret-match-uri-1=*://*innersource.accenture.com/*' -n {{ item }}
+  with_items:
+  - "dev"
+  - "testing"
+  - "staging"
+  - "cicd"
+  - "logging"
+  - "metrics"
+  - "wso2"
+
+- name: "Grant Permissions to run as Root for Project"
+  command: >
+    {{ openshift.common.client_binary }} adm
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    policy add-scc-to-user anyuid -z default -n {{ item }}
+  with_items:
+  - "dev"
+  - "testing"
+  - "staging"
+  - "cicd"
+  - "logging"
+  - "metrics"
+  - "wso2"
+
+# Importing all the template files & image streams for CICD & Microservices
+
+- name: "Changing projects"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    project openshift
+
+- name: "Creating Additional ImageStream for S2I"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    create -f {{ examples_base }}/bootstrap/s2i-java-imagestream.json
+  register: image_deployer
+  failed_when: image_deployer.rc == 1 and 'already exists' not in image_deployer.stderr
+
+- name: "Creating Additional Templates for Microservices"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    create -f {{ examples_base }}/bootstrap/{{ item }}
+  with_items:
+    - "cicd-template.yaml"
+    - "microservice-primary-stage-s2i-build-template.json"
+    - "microservice-primary-stage-docker-build-template.json"
+    - "microservice-secondary-stage-template.json"
+  register: templates_deployer
+  failed_when: templates_deployer.rc == 1 and 'already exists' not in templates_deployer.stderr
+
+
+# Setting up Jenkins Server in CICD
 
 - name: "Changing projects"
   command: >
@@ -30,6 +158,8 @@
   register: jenkins_deployer
   failed_when: jenkins_deployer.rc == 1 and 'already exists' not in jenkins_deployer.stderr
 
+# Setting up PostgreSQL Server in CICD
+
 - name: "Create PostgreSQL Server Container"
   command: >
     {{ openshift.common.client_binary }} 
@@ -40,6 +170,9 @@
     -p POSTGRESQL_DATABASE=sonar
   register: postgresql_deployer
   failed_when: postgresql_deployer.rc == 1 and 'already exists' not in postgresql_deployer.stderr
+
+
+# Setting up SonarQube Server in CICD
 
 - name: "Create SonarQube Server Container"
   command: >
@@ -61,6 +194,9 @@
   register: sonarqube_service
   failed_when: sonarqube_service.rc == 1 and 'already exists' not in sonarqube_service.stderr
 
+
+# Setting up Nexus Server in CICD
+
 - name: "Create Nexus Server Container"
   command: >
     {{ openshift.common.client_binary }} 
@@ -77,22 +213,248 @@
   register: nexus_service
   failed_when: nexus_service.rc == 1 and 'already exists' not in nexus_service.stderr  
 
-- name: "Create Development project"
-  command: >
-    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
-    new-project dev --description="Development Environment" --display-name="Development Environment"
 
-- name: "Create Testing project"
-  command: >
-    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
-    new-project testing  --description="Testing Environment" --display-name="Testing Environment"
-
-- name: "Create Staging project"
-  command: >
-    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
-    new-project staging  --description="Staging Environment" --display-name="Staging Environment"
+# Granting Inter project Permissions 
 
 - name: "Grant ClusterAdmin Priviledge"
   command: >
     {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
     policy add-cluster-role-to-user cluster-admin openshift-admin
+
+- name: "Grant Permissions for CICD Project Jenkins Service Account"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    policy add-role-to-user edit system:serviceaccount:cicd:jenkins -n {{ item }}
+  with_items:
+  - "dev"
+  - "testing"
+  - "staging"
+
+- name: "Grant Image Puller access from Development Project"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    policy add-role-to-user system:image-puller system:serviceaccount:{{ item }}:default -n dev
+  with_items:
+  - "testing"
+  - "staging"
+
+
+
+- name: "Creating Service Account for Metrics Project"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    create serviceaccount metrics -n metrics
+
+- name: "Granting Permissions to Metrics Project"
+  command: >
+    {{ openshift.common.client_binary }} adm
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    policy add-cluster-role-to-user cluster-reader system:serviceaccount:metrics:metrics
+
+
+# Setting up Prometheus
+
+- name: "Creating Prometheus Service"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    create -f {{ examples_base }}/bootstrap/prometheus.json -n metrics
+  register: promethus_deployer
+  failed_when: promethus_deployer.rc == 1 and 'already exists' not in promethus_deployer.stderr
+
+
+- name: "Exposing Prometheus Service"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service prometheus --port=9090 -n metrics
+
+
+
+
+# Setting up Grafana
+
+- name: "Creating Grafana Service"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app grafana/grafana -e GF_INSTALL_PLUGINS=grafana-piechart-panel,hawkular-datasource -n metrics
+  register: grafana_deployer
+  failed_when: grafana_deployer.rc == 1 and 'already exists' not in grafana_deployer.stderr
+
+- name: "Exposing Grafana Service"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service grafana --port=3000 -n metrics
+
+# Setting up Elastic Search Proxy NGINX Server to bypass authorization for Grafana
+
+- name: "Exposing Grafana Service"
+  command: >
+  oc get secrets 
+  $(oc get secrets -n logging | grep aggregated-logging-elasticsearch-token | head -n1 | cut -d ' ' -f1) 
+  -n logging --template='{{.data.token}}' | base64 --decode
+
+
+- name: "Changing projects to Logging"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    project logging
+
+- name: "Getting Bearer Key for ElasticSearch"
+  command: >
+    oc get secrets 
+    $(oc get secrets -n logging | grep aggregated-logging-elasticsearch-token | head -n1 | cut -d ' ' -f1) 
+    -n logging --template='{{.data.token}}' | base64 --decode
+  register: logging_secret
+  failed_when: logging_secret.rc == 1 and 'invalid input' not in logging_secret.stderr
+
+
+- name: "Creating ElasticSearch Proxy NGINX"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app https://github.com/dipayanbiswas92/logging-nginx.git --strategy=docker --name=es-proxy 
+    -e NGINX_SCHEMA=https -e NGINX_HOST=logging-es -e NGINX_PORT=9200 -e TOKEN=logging_secret.stdout
+  register: es_proxy_deployer
+  failed_when: es_proxy_deployer.rc == 1 and 'already exists' not in es_proxy_deployer.stderr
+
+- name: "Exposing ElasticSearch Proxy NGINX"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service es-proxy --port=80
+
+
+# Setting up WSO2 Components
+
+- name: "Creating WSO2 Identity Server Application"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app ssh://git@innersource.accenture.com/ppesdevops/wso2-openshift.git --strategy=docker --name=wso2-is --context-dir=wso2-is
+  register: wso2is_deployer
+  failed_when: wso2is_deployer.rc == 1 and 'already exists' not in wso2is_deployer.stderr
+
+- name: "Creating WSO2 API Manager Application"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app ssh://git@innersource.accenture.com/ppesdevops/wso2-openshift.git --strategy=docker --name=wso2-apim --context-dir=wso2-apim
+  register: wso2apim_deployer
+  failed_when: wso2apim_deployer.rc == 1 and 'already exists' not in wso2apim_deployer.stderr
+
+- name: "Creating WSO2 API Analytics Application"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    new-app ssh://git@innersource.accenture.com/ppesdevops/wso2-openshift.git --strategy=docker --name=wso2-analytics --context-dir=wso2-analytics
+  register: wso2analytics_deployer
+  failed_when: wso2analytics_deployer.rc == 1 and 'already exists' not in wso2analytics_deployer.stderr
+
+
+- name: "Exposing WSO2 Identity Server"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    oc create route passthrough --service=wso2-is --port=9446
+
+- name: "Exposing WSO2 API Manager Server"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service passthrough --service=wso2-apim --port=9443
+
+- name: "Exposing WSO2 API Analytics Server"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    expose service passthrough --service=wso2-analytics --port=9444
+
+
+# Setting up EBIZ Components
+
+
+- name: "Creating Microservice Application in Development"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    process  main-stage-app-docker-build-template \
+    -p APPLICATION_NAME={{ item }} -p GIT_URL=ssh://git@innersource.accenture.com/ppesdevops/{{ item }}.git -p REPLICAS=2 -p NAMESPACE=dev  
+    -n openshift | {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig  create -n dev -f -
+  register: microservice_deployer_dev
+  failed_when: microservice_deployer_dev.rc == 1 and 'already exists' not in microservice_deployer_dev.stderr
+  with_items:
+  - "product-app"
+  - "location-app"
+  - "order-app"
+  - "inventory-app"
+
+- name: "Creating Microservice Application in Testing"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    process secondary-stage-app-template \
+    -p APPLICATION_NAME={{ item }} -p SOURCE_IMAGE_NAMESPACE=dev -p REPLICAS=2 -p NAMESPACE=testing  
+    -n openshift |  {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig  create -n dev -f -
+  register: microservice_deployer_test
+  failed_when: microservice_deployer_test.rc == 1 and 'already exists' not in microservice_deployer_test.stderr
+  with_items:
+  - "product-app"
+  - "location-app"
+  - "order-app"
+  - "inventory-app"
+
+- name: "Creating Microservice Application in Staging"
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    process secondary-stage-app-template \
+    -p APPLICATION_NAME={{ item }} -p SOURCE_IMAGE_NAMESPACE=dev -p REPLICAS=2 -p NAMESPACE=staging  
+    -n openshift |  {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig  create -n dev -f -
+  register: microservice_deployer_stage
+  failed_when: microservice_deployer_stage.rc == 1 and 'already exists' not in microservice_deployer_stage.stderr
+  with_items:
+  - "product-app"
+  - "location-app"
+  - "order-app"
+  - "inventory-app"
+
+
+- name: "Creating Microservice Application CI/CD "
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    process cicd-template \
+    -p APPLICATION_NAME={{ item }}
+    -n openshift | {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig  create -n dev -f -
+  register: microservice_deployer_cicd
+  failed_when: microservice_deployer_cicd.rc == 1 and 'already exists' not in microservice_deployer_cicd.stderr
+  with_items:
+  - "product-app"
+  - "location-app"
+  - "order-app"
+  - "inventory-app"
+
+- name: "Creating Microservice Application CI/CD "
+  command: >
+    {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+     process cicd-template \
+    -p APPLICATION_NAME={{ item }}
+    -n openshift |  {{ openshift.common.client_binary }} 
+    --config={{ openshift_master_config_dir }}/admin.kubeconfig create -n dev -f -
+  register: microservice_deployer_cicd
+  failed_when: microservice_deployer_cicd.rc == 1 and 'already exists' not in microservice_deployer_cicd.stderr
+  with_items:
+  - "product-app"
+  - "location-app"
+  - "order-app"
+  - "inventory-app"
