@@ -27,6 +27,15 @@
     - "id_rsa"
     - "id_rsa.pub"
 
+- name: Copy OpenShift GIT Source Keys files
+  copy:
+    src: "{{ key_path_src }}/{{ item }}"
+    dest: "{{ examples_base }}/git/"
+    remote_src: yes
+  with_items:
+    - "id_rsa_src"
+    - "id_rsa_src.pub"
+
 # Creating all the needed Projects
 
 
@@ -84,11 +93,23 @@
   - "metrics"
   - "wso2"
 
+- name: "Create GIT SSH Secret for the Projects"
+  command: >
+    {{ openshift.common.client_binary }} adm --config={{ openshift_master_config_dir }}/admin.kubeconfig 
+    secrets new-sshauth gitsrcsecret --ssh-privatekey={{ examples_base }}/git//id_rsa_src -n {{ item }}
+  with_items:
+  - "dev"
+  - "testing"
+  - "staging"
+  - "cicd"
+  - "logging"
+  - "metrics"
+  - "wso2"
 
 - name: "Annotate GIT SSH Secret for the Projects"
   command: >
     {{ openshift.common.client_binary }} annotate --config={{ openshift_master_config_dir }}/admin.kubeconfig 
-    secrets gitsshsecret 'build.openshift.io/source-secret-match-uri-1=*://*innersource.accenture.com/*' -n {{ item }}
+    secrets gitsrcsecret 'build.openshift.io/source-secret-match-uri-1=*://*innersource.accenture.com/*' -n {{ item }}
   with_items:
   - "dev"
   - "testing"
